@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from pathlib import Path
 from datetime import UTC, datetime
 
 TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
@@ -127,6 +128,8 @@ CREATE TABLE IF NOT EXISTS alert_log (
 
 
 def connect(path: str = "data/odds.sqlite") -> sqlite3.Connection:
+    if path != ":memory:":
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.executescript(SCHEMA)
     return conn
