@@ -1,0 +1,22 @@
+# Plan §7 T5 step 4: daily heartbeat — alert Discord if data flow died (§9 P3).
+name: heartbeat
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 12 * * *"
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: data}
+      - name: Check yesterday and alert
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          Y=$(date -u -d yesterday +%F)
+          N=$(ls raw/${Y}_*.jsonl.gz 2>/dev/null | wc -l)
+          MSG="heartbeat: ${N} raw file(s) for ${Y}"
+          if [ "$N" -eq 0 ]; then MSG="ALERT: ZERO snapshots for ${Y} - pipeline is down"; fi
+          curl -s -X POST -H "Content-Type: application/json" \
+            -d "{\"content\": \"${MSG}\"}" "$DISCORD_WEBHOOK_URL"

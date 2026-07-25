@@ -1,0 +1,39 @@
+# Plan §7 T5: 3x daily polling (credit budget) + manual dispatch.
+# Data goes to the DATA branch as gzipped JSONL + manifest (never sqlite to main; §9 P4).
+name: poll
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 16,20,0 * * *"
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -r requirements.txt
+      - name: Run poller + scan
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -m src.poller
+          python -m src.scan
+          python -m src.results
+      - name: Checkout data branch alongside (T5 step 3c)
+        uses: actions/checkout@v4
+        with: {ref: data, path: data-branch}
+      - name: Copy JSONL + append manifest (T5 steps 3d-3e)
+        run: |
+          mkdir -p data-branch/raw
+          cp -n data/raw/*.jsonl.gz data-branch/raw/ 2>/dev/null || true
+          python scripts/append_manifest.py data-branch
+      - name: Commit data branch with rebase retry x3 (T5 step 3f)
+        working-directory: data-branch
+        run: |
+          git config user.name "poll-bot" && git config user.email "bot@users.noreply.github.com"
+          git add -A && git commit -m "snapshot $(date -u +%FT%TZ)" || exit 0
+          for i in 1 2 3; do git pull --rebase && git push && break || sleep 5; done
