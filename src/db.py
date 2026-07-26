@@ -124,6 +124,23 @@ CREATE TABLE IF NOT EXISTS alert_log (
   key TEXT PRIMARY KEY,         -- event|book|outcome
   last_alerted TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS provider_usage (
+  provider TEXT NOT NULL,
+  date TEXT NOT NULL,
+  calls INTEGER DEFAULT 0,
+  events INTEGER DEFAULT 0,
+  PRIMARY KEY (provider, date)
+);
+
+CREATE TABLE IF NOT EXISTS book_deeplinks (
+  event_id TEXT NOT NULL,
+  book TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  url TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (event_id, book, outcome)
+);
 """
 
 

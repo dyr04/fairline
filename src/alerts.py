@@ -33,7 +33,7 @@ def should_alert(sig, config: dict, conn) -> bool:
     return True
 
 
-def build_card(sig, config: dict) -> tuple[str, str]:
+def build_card(sig, config: dict, conn=None) -> tuple[str, str]:
     now = parse_ts(utc_now_str())
     expiry = canonical_ts(now + timedelta(minutes=config["alert_expiry_minutes"]))
     tol = config["execution_price_tolerance"]
@@ -45,11 +45,20 @@ def build_card(sig, config: dict) -> tuple[str, str]:
                                      config["kelly_fraction"]),
                          config["stake_increment"])
         stake_line = f"stake: ${st:.0f} (human-rounded quarter-Kelly)"
+    deeplink = None
+    if conn is not None:
+        row = conn.execute(
+            "SELECT url FROM book_deeplinks WHERE event_id=? AND book=? AND outcome=?",
+            (sig.event_id, sig.book, sig.outcome)).fetchone()
+        if row:
+            deeplink = row[0]
+    link_line = f"\n[TAP TO OPEN BETSLIP]({deeplink})" if deeplink else ""
     card = (
         f"**{sig.book.upper()}** {sig.outcome} @ **{sig.price_decimal:.3f}**\n"
         f"edge {sig.edge:+.1%} | fair p={sig.fair_prob:.3f} | {stake_line}\n"
         f"bettable down to **{floor:.3f}** | HARD EXPIRY {expiry}\n"
         f"VERIFY LIVE PRICE — do not bet below {sig.price_decimal - tol:.3f}"
+        f"{link_line}"
     )
     return card, expiry
 
@@ -61,7 +70,7 @@ def send(sig, config: dict, conn, webhook: str | None = None) -> bool:
     if not webhook:
         print("WARN no DISCORD_WEBHOOK_URL; alert skipped")
         return False
-    card, expiry = build_card(sig, config)
+    card, expiry = build_card(sig, config, conn)
     requests.post(webhook, json={"content": card}, timeout=10).raise_for_status()
     key = f"{sig.event_id}|{sig.book}|{sig.outcome}"
     conn.execute("INSERT OR REPLACE INTO alert_log (key, last_alerted) VALUES (?,?)",

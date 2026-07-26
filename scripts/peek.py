@@ -19,6 +19,25 @@ REASONS = {
     "consensus_outlier": "most books disagreed with consensus — the CONSENSUS was wrong",
 }
 
+def show_event(conn, event_prefix):
+    """Show all snapshots for events whose id starts with a given prefix.
+    Helps diagnose cross-provider staleness and price artifacts."""
+    print()
+    print(SEP)
+    print(f"EVENT DIAGNOSTIC — all rows for event(s) starting '{event_prefix}'")
+    print(SEP)
+    rows = list(conn.execute(
+        "SELECT event_id, book, provider, outcome, price_decimal, book_last_update "
+        "FROM odds_snapshots WHERE event_id LIKE ? "
+        "ORDER BY event_id, book, book_last_update",
+        (event_prefix + "%",)))
+    if not rows:
+        print("(no rows found)")
+        return
+    for r in rows:
+        print(f"  {r[0][:12]}  {r[1]:<14} {r[2]:<15} {r[3]:<22} "
+              f"price={r[4]:<6.2f}  updated={r[5]}")
+
 conn = connect()
 
 print(SEP)
@@ -71,3 +90,8 @@ for event_id, margin, books in arbs:
     kind = "*** TRUE ARB ***" if margin > 0 else "near-miss (not bettable)"
     print(f"  {margin:+.2%}  {kind}")
     print(f"         event {event_id[:12]}  {books}")
+
+
+# Diagnostic: inspect the three "arb" events that looked suspicious
+for prefix in ("ce049001", "a9c8aad6", "71a4c184"):
+    show_event(conn, prefix)

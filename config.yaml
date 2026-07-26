@@ -1,6 +1,6 @@
 # Single source of tunables — every module reads from here (plan §7 T1).
 provider: the_odds_api
-sports: [basketball_wnba]
+sports: [basketball_wnba, baseball_mlb]
 regions: [us, eu]
 my_books: []                   # books the owner can actually bet; alerts fire ONLY for these
 exchange_books: {betfair_ex_eu: 0.02}             # name -> commission rate, e.g. {novig: 0.02}
@@ -19,3 +19,4 @@ anchor_book: pinnacle
 fair_line_mode: consensus      # 'anchor' (Pinnacle) or 'consensus' (weighted all-books)
 anchor_overround_band: [0.015, 0.08]
 soft_overround_band: [0.015, 0.15]
+sportsgameodds_leagues: [MLB]   # SGO doesn't cover WNBA; add NBA/NFL/NHL in-season

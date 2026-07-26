@@ -209,6 +209,27 @@ def _consensus_signals(latest, event_id, sport, config, out):
     if len(probs) < int(config.get("min_books", 4)):
         return out
 
+    # Median-outlier guard (same principle as scan_arbs): a book whose implied
+    # prob for either outcome is >5% away from the median across all synced
+    # books is either stale, or in a market of one. Either way it shouldn't
+    # shape the consensus fair line — it distorts the weighted average and
+    # manufactures phantom edges against every other book.
+    import statistics
+    outcomes = {oc for p in probs.values() for oc in p}
+    outlier = set()
+    for oc in outcomes:
+        vals = [(probs[b][oc], b) for b in probs]
+        med = statistics.median(v for v, _ in vals)
+        for v, b in vals:
+            if abs(v - med) > 0.05:
+                outlier.add(b)
+    for b in outlier:
+        reject_all(b, latest[b], "consensus_outlier")
+        del probs[b]
+        del wts[b]
+    if len(probs) < int(config.get("min_books", 4)):
+        return out
+
     def loo_fair(book: str, outcome: str) -> float:
         others = [b for b in probs if b != book]
         tw = sum(wts[b] for b in others)
@@ -282,11 +303,35 @@ def scan_arbs(snapshot_rows: list[dict], config: dict) -> list[dict]:
               if (freshest - parse_ts(rows[0]["book_last_update"])).total_seconds() <= sync_limit}
     if len(synced) < 2:
         return []
+
+    # Median-outlier guard: reject any book whose implied prob for either outcome
+    # is > 5% away from the median across all synced books. This catches the
+    # 'Pinnacle stale but timestamp fresh' failure that manufactured phantom arbs
+    # on 2026-07-26.
+    import statistics
+    by_outcome: dict[str, list[tuple[float, str]]] = {}
+    for book, rows in synced.items():
+        for r in rows:
+            by_outcome.setdefault(r["outcome"], []).append((r["price_decimal"], book))
+    outlier_books = set()
+    for outcome, quotes in by_outcome.items():
+        if len(quotes) < 4:
+            continue
+        implieds = [1.0 / p for p, _ in quotes]
+        med = statistics.median(implieds)
+        for (p, book) in quotes:
+            if abs(1.0 / p - med) > 0.05:
+                outlier_books.add(book)
+    synced = {b: rows for b, rows in synced.items() if b not in outlier_books}
+    if len(synced) < 2:
+        return []
     best: dict[str, tuple[float, str]] = {}
     for book, rows in synced.items():
         for r in rows:
             if r["outcome"] not in best or r["price_decimal"] > best[r["outcome"]][0]:
                 best[r["outcome"]] = (r["price_decimal"], book)
+
+
     margin = 1.0 - sum(1.0 / p for p, _ in best.values())
     if margin <= -0.01:  # log arbs and near-arbs (margin > -1%)
         return []
