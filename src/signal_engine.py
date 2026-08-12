@@ -190,8 +190,19 @@ def _consensus_signals(latest, event_id, sport, config, out):
                 continue
             dv = devig_multiplicative(odds)
             p = {r["outcome"]: q for r, q in zip(rows, dv)}
-        probs[book] = p
-        wts[book] = 1.0 / max(ovr, 0.02)
+        # T15: prefer learned Brier weights once books have enough resolved games.
+    try:
+        import sqlite3
+        from src.learn import learned_weights
+        _conn = sqlite3.connect("data/odds.sqlite")
+        min_g = int(config.get("min_games_for_learned_weights", 30))
+        learned = learned_weights(_conn, sport, min_g)
+        _conn.close()
+        for b in list(wts):
+            if b in learned:
+                wts[b] = learned[b]  # learned overrides the overround prior
+    except Exception:
+        pass  # any failure -> keep overround prior (safe degradation)
 
     if len(probs) < int(config.get("min_books", 4)):
         for book in list(probs):

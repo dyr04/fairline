@@ -141,6 +141,14 @@ CREATE TABLE IF NOT EXISTS book_deeplinks (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (event_id, book, outcome)
 );
+
+CREATE TABLE IF NOT EXISTS sharpness_scored (
+  event_id TEXT NOT NULL,
+  book TEXT NOT NULL,
+  sport TEXT NOT NULL,
+  scored_at TEXT NOT NULL,
+  PRIMARY KEY (event_id, book)
+);
 """
 
 

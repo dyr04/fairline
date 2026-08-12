@@ -2,7 +2,7 @@
 provider: the_odds_api
 sports: [basketball_wnba, baseball_mlb]
 regions: [us, eu]
-my_books: []                   # books the owner can actually bet; alerts fire ONLY for these
+my_books: [hardrockbet, fanatics, bovada]                   # books the owner can actually bet; alerts fire ONLY for these
 exchange_books: {betfair_ex_eu: 0.02}             # name -> commission rate, e.g. {novig: 0.02}
 edge_threshold: 0.02           # research signal floor (logged)
 live_bet_edge_min: 0.035       # alert window floor (plan §4.7)
@@ -12,7 +12,7 @@ staleness_sync_minutes: 5
 execution_price_tolerance: 0.04
 alert_expiry_minutes: 4
 max_offshore_fraction: 0.30
-bankroll: 0                    # set before any live sizing; 0 disables stake output
+bankroll: 1000                    # set before any live sizing; 0 disables stake output
 kelly_fraction: 0.25
 stake_increment: 5
 anchor_book: pinnacle
@@ -20,3 +20,11 @@ fair_line_mode: consensus      # 'anchor' (Pinnacle) or 'consensus' (weighted al
 anchor_overround_band: [0.015, 0.08]
 soft_overround_band: [0.015, 0.15]
 sportsgameodds_leagues: [MLB]   # SGO doesn't cover WNBA; add NBA/NFL/NHL in-season
+book_deeplinks_fallback:
+  hardrockbet: "https://app.hardrock.bet/sports/baseball/mlb"
+  fanatics: "https://betfanatics.com/mlb"
+  bovada: "https://www.bovada.lv/sports/baseball/mlb"
+
+min_games_for_learned_weights: 30
+pregame_window_min: 25    # poll when a game commences within this many minutes
+max_gap_min: 240          # also poll if no snapshot in this long (discover new games)

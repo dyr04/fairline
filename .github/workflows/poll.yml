@@ -1,10 +1,13 @@
-# Plan §7 T5: 3x daily polling (credit budget) + manual dispatch.
-# Data goes to the DATA branch as gzipped JSONL + manifest (never sqlite to main; §9 P4).
+# Plan §7 T5: dynamic pre-game polling + derived-state persistence.
+# Runs every 2 hours; src.schedule_poll decides whether a game is near enough
+# to warrant an actual API poll (saves credits). Derived tables (results,
+# sharpness) persist across runs as JSONL on the data branch — never the
+# SQLite binary (§9 P4). Raw odds stay in raw/*.jsonl.gz.
 name: poll
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 16,20,0 * * *"
+    - cron: "0 */2 * * *"   # every 2 hours; schedule_poll gates the real poll
 jobs:
   poll:
     runs-on: ubuntu-latest
@@ -15,23 +18,43 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.11"}
       - run: pip install -r requirements.txt
-      - name: Run poller + scan
-        env:
-          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: |
-          python -m src.poller
-          python -m src.scan
-          python -m src.results
-      - name: Checkout data branch alongside (T5 step 3c)
+
+      - name: Checkout data branch for derived state
         uses: actions/checkout@v4
         with: {ref: data, path: data-branch}
-      - name: Copy JSONL + append manifest (T5 steps 3d-3e)
+
+      - name: Restore derived tables from data branch (load before compute)
         run: |
-          mkdir -p data-branch/raw
+          mkdir -p data/derived
+          cp -n data-branch/derived/*.jsonl data/derived/ 2>/dev/null || true
+          python -c "from src.persist import load_derived; load_derived()"
+
+      - name: Poll (dynamic pre-game gate), scan, results, learn
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          SPORTSGAMEODDS_API_KEY: ${{ secrets.SPORTSGAMEODDS_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          DECISION=$(python -m src.schedule_poll | tail -n1)
+          echo "poll decision: $DECISION"
+          if [ "$DECISION" = "POLL" ]; then
+            python -m src.poller
+          else
+            echo "no game near — skipping API poll to save credits"
+          fi
+          python -m src.scan
+          python -m src.results
+          python -m src.learn
+          python -c "from src.persist import dump_derived; dump_derived()"
+
+      - name: Copy raw JSONL + derived + append manifest
+        run: |
+          mkdir -p data-branch/raw data-branch/derived
           cp -n data/raw/*.jsonl.gz data-branch/raw/ 2>/dev/null || true
+          cp data/derived/*.jsonl data-branch/derived/ 2>/dev/null || true
           python scripts/append_manifest.py data-branch
-      - name: Commit data branch with rebase retry x3 (T5 step 3f)
+
+      - name: Commit data branch with rebase retry x3
         working-directory: data-branch
         run: |
           git config user.name "poll-bot" && git config user.email "bot@users.noreply.github.com"

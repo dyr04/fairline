@@ -5,7 +5,7 @@ import json
 
 import yaml
 
-from src.alerts import send
+from src.alerts import send, send_arb
 from src.db import connect, utc_now_str
 from src.signal_engine import compute_signals, scan_arbs, write_signals
 
@@ -35,6 +35,7 @@ def main() -> None:
                    ON CONFLICT(event_id, books) DO UPDATE SET
                      last_seen=excluded.last_seen, margin=excluded.margin""",
                 (arb["event_id"], arb["sport"], arb["books"], arb["margin"], now, now))
+            send_arb(arb, cfg, conn)
             n_arb += 1
     conn.commit()
     print(json.dumps({"new_signals": n_sig, "arb_rows": n_arb}))
