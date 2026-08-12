@@ -1,6 +1,6 @@
 # Fair-Line & Arbitrage Detection Engine — Full Build Plan
-**A quant portfolio project using the WNBA/NBA betting market as a sandbox**
-*Handoff document: any Claude agent (or human) should be able to execute each phase from this spec alone.*
+**A live multi-book betting-market pricing and execution system.**
+*Working build document. Owners: Dylan & Colin. Any contributor (human or agent) should be able to execute each phase from this spec alone. This is a real system intended to identify and act on genuine +EV and arbitrage opportunities — not a demo.*
 
 ---
 
@@ -8,22 +8,22 @@
 
 Sports betting markets are fragmented: dozens of books independently price the same binary outcome. By (a) removing each book's margin ("vig") to recover implied probabilities, (b) anchoring on the sharpest book (Pinnacle) as the consensus fair price, and (c) scanning for cross-book price dislocations, we can measure market efficiency and detect +EV and arbitrage opportunities — the same logic as cross-exchange price discovery and stat-arb in financial markets.
 
-**Key framing decision:** this is a *market efficiency measurement engine*, not a "guaranteed money machine." Arbs detected via polled API data are frequently stale by the time they're flagged. Measuring the frequency, size, and lifetime of arb windows IS the quant result. This framing is more defensible in interviews and more honest.
+**Core discipline:** this is a market-efficiency *measurement* engine first and a betting tool second — in that order, on purpose. Arbs detected via polled API data are frequently stale by the time they're flagged, so the system's job is to measure the frequency, size, and lifetime of real edges, prove they survive execution lag, and only then act on them. Money is made by acting on validated edges, not by trusting the backtest. The honesty machinery (lag sweep, CLV tiers, forward-test gate) exists precisely because real capital is on the line.
 
-**Sport choice:** WNBA now (in season July 2026 — live data available today), architecture is sport-agnostic so NBA plugs in identically when the season starts in October. Talking point: "I designed the pipeline sport-agnostic and validated on WNBA before NBA season."
+**Sport choice:** WNBA + MLB now (both in season, live data flowing). Architecture is sport-agnostic; NBA plugs in when its season starts, and MLB's ~15 games/day is the fastest path to a mature book-sharpness table.
 
 ---
 
 ## 2. Tech Stack (and why each choice)
 
-| Layer | Choice | Why (interview answer) |
+| Layer | Choice | Why |
 |---|---|---|
 | Language | Python 3.11+ | Industry standard for quant research; rich ecosystem |
 | Data source | The Odds API (`us` + `eu` regions) | Multi-book aggregation in one call; `eu` region is required because Pinnacle (the sharp anchor) is not returned in `us` |
 | Storage | SQLite via `sqlite3`/SQLAlchemy | Zero-config, single-file DB that ships inside the repo; time-series odds snapshots are append-only and small. Upgrade path to Postgres is one connection string — mention this |
 | Scheduler | GitHub Actions cron | Free, cloud-based (laptop can be off), and the commit history itself proves the data was collected in real time — an auditable dataset |
 | Analysis | pandas + numpy | Standard |
-| Dashboard | Streamlit + Plotly | Pure Python, free hosting on Streamlit Community Cloud → recruiters click a live link, no install |
+| Dashboard | Streamlit + Plotly | Pure Python, free hosting on Streamlit Community Cloud → live shareable URL, no install; renders live computations (repricer) that a BI tool can't |
 | Backtest | Custom vectorized pandas engine | Off-the-shelf backtesters (backtrader etc.) are equity-centric; per-bet event studies are simpler and show you understand the math |
 | Code quality | VS Code, `ruff` lint, type hints, `pytest` on the math modules | Portfolio polish; tests on devig/arb math are cheap and impressive |
 | Secrets | `.env` + GitHub Actions secrets | Never commit the API key |
@@ -134,11 +134,11 @@ Input: list of decimal odds for the N outcomes of one market at one book. **Writ
 - Implied prob (raw): `p_raw = 1 / decimal_odds`. Sum > 1; the excess is the **overround/vig**.
 - **Multiplicative (proportional) method — the baseline:** `p_fair_i = p_raw_i / Σ p_raw`. Simple, standard, but known bias: it under-corrects longshots (favorite–longshot bias).
 - **Power method — the comparison:** find k such that `Σ p_raw_i^k = 1`, then `p_fair_i = p_raw_i^k`. Solve with `scipy.optimize.brentq`. Handles longshot bias better.
-- Implement both; the dashboard/backtest use multiplicative by default with power as a config flag. Being able to explain WHY two devig methods disagree is a top-tier interview moment. (Mention Shin's method exists for insider-trading-adjusted markets; do not implement — out of scope.)
+- Implement both; the dashboard/backtest use multiplicative by default with power as a config flag. Being able to explain WHY two devig methods disagree is a genuinely important distinction to understand. (Mention Shin's method exists for insider-trading-adjusted markets; do not implement — out of scope.)
 - **Fair line anchor:** devigged Pinnacle price = consensus "true" probability. Why Pinnacle: it welcomes sharp action, runs low margins (~2–3%), and its closing line is the academic benchmark for market efficiency (this is why CLV is measured against it).
 - **Edge signal:** for each soft book: `edge = p_fair_pinnacle − p_implied_book_fair`. Positive edge above a threshold (start 2%) ⇒ +EV flag written to `signals`.
 - **Signal-quality filters (apply BEFORE writing any signal — industry practice per OddsJam/Monahan methodology):**
-  - *Max-EV cap:* discard edges > 8%. Extreme edges are almost always stale lines, data errors, or unpriced news — adverse selection, not alpha. (Interview line: "an outlier that looks too good IS the information that something is wrong.")
+  - *Max-EV cap:* discard edges > 8%. Extreme edges are almost always stale lines, data errors, or unpriced news — adverse selection, not alpha. (An outlier that looks too good IS the information that something is wrong.)
   - *Overround sanity (per-book bands):* require two-sided quotes. Anchor (Pinnacle) overround must be in [1.5%, 8%] or the fair line is untrustworthy → skip the event for Model A. Soft books use a wider band [1.5%, 15%] — many US books run 8–12% vig on WNBA and excluding them wholesale would discard legitimate targets (reviewer finding).
   - *Market depth:* require ≥ 4 books quoting the event before flagging any edge or arb; thin markets manufacture fake gaps.
   - *Staleness sync (uses book_last_update):* only compare two books' prices if their `book_last_update` values are within 5 minutes of each other; otherwise the "edge" is a timestamp artifact, not a price disagreement. Apply to both +EV signals and arb detection.
@@ -156,7 +156,7 @@ For each event snapshot: take best (highest) decimal price per outcome across al
 
 ### 4.3 `backtest.py`
 Strategy simulated: **bet the +EV signal** (soft book price above Pinnacle fair prob, threshold sweep 1–5%).
-- Stake sizing: flat 1-unit AND **fractional Kelly (¼ Kelly)**: `f* = (b·p − q)/b`. Report both. Why fractional: full Kelly is optimal in expectation but assumes p is known exactly; estimation error makes full Kelly wildly over-aggressive — ¼ Kelly sacrifices growth for drawdown control. (Interview gold: this is position sizing under parameter uncertainty.)
+- Stake sizing: flat 1-unit AND **fractional Kelly (¼ Kelly)**: `f* = (b·p − q)/b`. Report both. Why fractional: full Kelly is optimal in expectation but assumes p is known exactly; estimation error makes full Kelly wildly over-aggressive — ¼ Kelly sacrifices growth for drawdown control. (This is position sizing under parameter uncertainty.)
 - Metrics:
   - **ROI** = net profit / total staked
   - **Hit rate** vs breakeven rate implied by avg odds
@@ -168,7 +168,7 @@ Strategy simulated: **bet the +EV signal** (soft book price above Pinnacle fair 
   - **Expected vs realized P&L**: plot cumulative Σ(EV per bet) against cumulative realized profit on one chart. If realized oscillates around expected → edges are real and gaps are variance; persistent divergence below expected → edges were fake. This chart is more diagnostic than the equity curve alone.
   - **Edge by time-to-tipoff**: bucket signals by hours before commence_time and report edge frequency/size/CLV per bucket — early lines are wider and softer; quantify it.
   - **EV-bucket calibration (validates the max-EV cap empirically):** run the backtest with the 8% cap DISABLED, group all signals by promised edge (0–2%, 2–4%, 4–8%, 8%+), and compare promised EV vs realized ROI per bucket. **Out-of-sample discipline (reviewer finding):** setting the cap on the same data that measured the buckets is in-sample selection. Split games chronologically — first 60% calibrates the cap, last 40% validates it holds; report both folds. If the sample is too small to split meaningfully (<150 signals), state that the cap is indicative only and must be re-confirmed on forward paper-traded signals before real staking. Whatever the data says, the production cap is a measured parameter with a stated validation status, never an assumption.
-- Bias controls (say these out loud in interviews): no look-ahead (signals only use data timestamped before bet), bets priced at the snapshot price actually observed, results joined after the fact.
+- Bias controls (non-negotiable, they protect real capital): no look-ahead (signals only use data timestamped before bet), bets priced at the snapshot price actually observed, results joined after the fact.
 
 ### 4.5 `sharpness.py` — learned book-weighting consensus (Model B)
 Two fair-line models run side by side, and the backtest decides which wins:
@@ -179,7 +179,7 @@ Two fair-line models run side by side, and the backtest decides which wins:
 
 **Shrinkage (critical at small n):** raw per-book Brier over <200 games is mostly noise. Shrink toward the cross-book mean: `S_shrunk = (n_b·S_b + n0·S̄) / (n_b + n0)` with n0 = 30 pseudo-games. New books enter at exactly the average weight and earn deviation from it. Why: estimation error — same principle as ¼ Kelly. Unshrunk weights would chase luck.
 
-**Weights:** `w_b ∝ 1/S_shrunk`, normalized to sum to 1 per sport. Persist the sharpness table to a `book_sharpness` table (book, sport, S_shrunk, n_games, updated_at) — this table IS the empirical answer to "which books are sharp at which sports" and belongs in the writeup as a headline exhibit.
+**Weights:** `w_b ∝ 1/S_shrunk`, normalized to sum to 1 per sport. Persist the sharpness table to a `book_sharpness` table (book, sport, S_shrunk, n_games, updated_at) — this table IS the empirical answer to "which books are sharp at which sports" and is a headline output of the system.
 
 **Leave-one-out (avoids circularity):** when computing book X's edge, build the consensus EXCLUDING book X's own line — otherwise X's price partially cancels its own measured gap.
 
@@ -187,11 +187,11 @@ Two fair-line models run side by side, and the backtest decides which wins:
 
 **Evaluation:** backtest Model A, Model B, and **Model H (hybrid — reviewer-proposed production mode)** on identical bet universes: H uses Model A's anchor when Pinnacle quoted both sides within 30 minutes of tipoff, and falls back to Model B's consensus otherwise — covering the no_anchor dead zones that are common in thin Pinnacle WNBA coverage without abandoning the anchor where it's reliable. H is evaluated as a third variant; it does not replace the clean A-vs-B comparison. **CRITICAL — walk-forward weights only:** for every simulated bet, Model B's (and H's fallback) weights must be computed exclusively from games resolved BEFORE that bet's timestamp, updating as the simulation advances. Computing weights over the full dataset and then backtesting on the same data is look-ahead bias — Model B would "win" fraudulently. The T11 verify script must include a test proving weights at time t are invariant to data after t. The interesting outcome either way: if B beats A, learned weighting adds information beyond Pinnacle; if A beats B, Pinnacle already dominates the aggregate — both are publishable results.
 
-**Why B is not guaranteed to beat A (important — don't assume it):** in the limit of infinite clean data, if Pinnacle truly dominates, learned weights would converge onto Pinnacle and B would collapse into A. In finite real samples that doesn't hold: (1) weights are estimated with error even after shrinkage; (2) soft books largely copy Pinnacle with a lag, so averaging correlated forecasters can pull the consensus toward a shared blind spot rather than diversifying away noise — this is the documented "forecast-combination puzzle" in the forecasting literature, where sophisticated weighted combinations often lose to a single strong benchmark precisely because of estimation error. This is exactly why the plan backtests both instead of assuming B wins, and it's a stronger interview answer than "of course the fancier model is better."
+**Why B is not guaranteed to beat A (important — don't assume it):** in the limit of infinite clean data, if Pinnacle truly dominates, learned weights would converge onto Pinnacle and B would collapse into A. In finite real samples that doesn't hold: (1) weights are estimated with error even after shrinkage; (2) soft books largely copy Pinnacle with a lag, so averaging correlated forecasters can pull the consensus toward a shared blind spot rather than diversifying away noise — this is the documented "forecast-combination puzzle" in the forecasting literature, where sophisticated weighted combinations often lose to a single strong benchmark precisely because of estimation error. This is exactly why the plan backtests both instead of assuming B wins — never trust the more sophisticated model just because it is more sophisticated.
 
 ### 4.7 `alerts.py` and live execution tracking — making signals actually actionable
 A Streamlit page you have to check isn't real-time; a usable signal has to reach you.
-- **Alerting (Discord) — the go/no-go card, not a generic ping:** each alert contains: signal price, fair prob, edge, signal age in minutes, a HARD EXPIRY timestamp (`signal_time + 4 min`, stored as `alert_expiry` on the signal row), and the instruction line: "VERIFY LIVE PRICE — do not bet if the book now shows worse than [signal_price − execution_price_tolerance]." Tolerance is a config key (default 0.04 decimal). An expired or tolerance-failed signal that gets bet anyway is a donation to the book; the card exists to make skipping easy.
+- **Alerting (Discord) — the go/no-go card, not a generic ping:** each alert contains: signal price, fair prob, edge, signal age in minutes, a HARD EXPIRY timestamp (`signal_time + 4 min`, stored as `alert_expiry` on the signal row), the instruction line: "VERIFY LIVE PRICE — do not bet if the book now shows worse than [signal_price − execution_price_tolerance]", **and a tap-to-open deep link into the book's app/site** (config `book_deeplinks: {book: url_template}` — shaves 30–60s off every manual execution, the cheapest latency win in the system). Tolerance is a config key (default 0.04 decimal). An expired or tolerance-failed signal that gets bet anyway is a donation to the book; the card exists to make skipping easy.
 - **Alert gate ≠ research threshold:** signals are LOGGED from the research threshold (2%) but ALERTED only in the live window `live_bet_edge_min` (3.5%) to `max_edge` (8%): after 2–4 minutes of human latency, 2–3% edges mostly arrive at the book as zero-or-negative EV, while 3.5–6% edges retain cushion. Alerts also fire ONLY for books in `my_books`; everything else is research.
 - **Exchange handling:** betting exchanges (commission-based, peer-matched) don't limit winners — sharp action is their business model — making them the durable long-term venue. Their prices are near-fair already: adjust for commission instead of devigging (effective price = quoted price net of commission on winnings). Flag exchange books in config with their commission rate. **Liquidity audit before any real exchange capital (reviewer finding):** manually record depth at the best three levels on five consecutive WNBA games; if average matched depth < $200/side, exchanges leave the WNBA live path and return with NBA (Phase 5), where liquidity is materially deeper — thin books' back/lay spreads eat the entire modeled edge at small size.
 - **Account sequencing (operational, not a footnote):** retail US books commonly limit winning accounts within roughly 50–200 sharp bets — often faster on low-volume sports like WNBA — so treat retail account capacity as a depleting resource. Sequence: forward-test and first real stakes on venues that tolerate winners (exchanges where liquid, offshore within the risk cap below); bring retail accounts into rotation only after forward-tested CLV is confirmed, and log `account_health` (book, date, max_bet_observed, restriction_flag) from the first real bet so capacity decay is measured, not discovered.
@@ -207,7 +207,7 @@ A Streamlit page you have to check isn't real-time; a usable signal has to reach
 - Page 1 — Live board: matrix of games × books, moneylines side by side (OddsJam-style), devigged Pinnacle fair prob column, +EV cells highlighted, arb banner if active.
 - Page 2 — History: pick a date/game → line-movement chart per book (Plotly), arb events table.
 - Page 3 — Backtest: equity curves for Model A vs Model B, metrics table, threshold sensitivity chart, and the book_sharpness table rendered as a heatmap (books × sports).
-- Page 4 — Model Health (the "how good is the model" page): cumulative expected-vs-realized P&L chart with divergence shading; rolling CLV over time; calibration plot (predicted probability deciles vs actual win frequency — a well-calibrated model hugs the diagonal); EV-bucket promised-vs-realized table; signal rejection stats by filter reason. This page is the single strongest thing to screen-share in an interview.
+- Page 4 — Model Health (the "how good is the model" page): cumulative expected-vs-realized P&L chart with divergence shading; rolling CLV over time; calibration plot (predicted probability deciles vs actual win frequency — a well-calibrated model hugs the diagonal); EV-bucket promised-vs-realized table; signal rejection stats by filter reason. This page is the fastest way to see, at a glance, whether the model is actually working.
 - Page 5 — Live/Paper Tracker: active signals above threshold, forward-logged (unstaked) bets with running CLV, and once real betting starts, logged slippage (signal price vs achieved price) alongside backtested assumptions.
 - Deploy to Streamlit Community Cloud reading the SQLite file from the repo (Actions commits keep it fresh).
 
@@ -266,9 +266,9 @@ Never cut: closing-line capture, CLV, tests on the math.
 
 ---
 
-## 6. Recruiter Talking Points (one per decision)
+## 6. Design Rationale (one line per major decision — the why behind each choice)
 
-- "I used Pinnacle's devigged close as the fair-price benchmark because sharp, low-margin books are the accepted efficiency baseline — CLV against that close is how professionals separate skill from variance."
+- - Pinnacle's devigged close as the fair-price benchmark because sharp, low-margin books are the accepted efficiency baseline — CLV against that close is how professionals separate skill from variance."
 - "I implemented two devig methods and can explain when they disagree — proportional devig under-corrects longshots, which is the favorite–longshot bias."
 - "I framed arbitrage as market-microstructure measurement: median window duration and margin size, because polled data can't prove executability — that honesty matters more than a flashy claim."
 - "I built my own time-series dataset with a cloud cron pipeline; the git commit history is an audit trail proving no look-ahead."
@@ -286,20 +286,6 @@ Never cut: closing-line capture, CLV, tests on the math.
 
 ---
 
-## 6b. Resume Bullets (draft now, fill ⟨metrics⟩ from real results in Phase 4)
-
-X-Y-Z format (accomplished X, measured by Y, by doing Z). Each maps to a §6 talking point for interview backup. Keep numbers conservative; update as results land.
-
-- Built an end-to-end market-data pipeline (Python, SQLite, GitHub Actions) that autonomously logged ⟨N⟩ odds snapshots across ⟨20+⟩ sportsbooks and ⟨M⟩ games, with git commit history serving as an auditable no-look-ahead guarantee.
-- Engineered a fair-price engine implementing two vig-removal methods (proportional and power), unit-tested and anchored on the devigged sharp-book close — the industry benchmark for market efficiency.
-- Designed a shrinkage-regularized forecast-combination model that Brier-scores every sportsbook's closing accuracy per sport and learns consensus weights walk-forward; benchmarked head-to-head against a single-anchor baseline with Closing Line Value as the arbiter ⟨result: A/B won by X⟩.
-- Quantified market microstructure by detecting ⟨N⟩ cross-book arbitrage windows (median duration ⟨X⟩ min, median margin ⟨Y⟩%), measuring how quickly fragmented betting markets converge.
-- Built a backtesting engine with CLV, per-bet Sharpe, max drawdown, fractional-Kelly sizing, and EV-bucket calibration that empirically set signal filters instead of assuming them ⟨e.g., signals promising >8% edge realized only ⟨Z⟩% — confirming adverse selection⟩.
-- Deployed a live Streamlit dashboard with webhook alerting and a forward paper-trading layer, validating the model out-of-sample for ⟨W⟩ weeks before any capital deployment.
-
-Rules for filling: never round up; if a result is negative (e.g., Model B lost), keep the bullet — "benchmarked and rejected the complex model" reads as stronger judgment than a suspicious win.
-
----
 
 ## 7. Agent Handoff — Task Tickets
 
@@ -385,7 +371,7 @@ Each ticket is a self-contained agent role. `/goal` = the verifiable end state (
 /steps:
 1. Read DECISIONS.md (naming contract), plan §2, §9 P3/P4/P9.
 2. Create orphan `data` branch containing an empty `manifest.json` (`{"files": []}`).
-3. `poll.yml` — exact flow (do not improvise): cron 16:00–04:00 UTC hourly + `workflow_dispatch`. Steps: (a) `actions/checkout` main into the default workspace; (b) install deps, run poller with the API key secret — writes `data/raw/*.jsonl.gz` in the main workspace per T2 /produces; (c) `actions/checkout` the `data` branch into subdirectory `data-branch/` (`with: {ref: data, path: data-branch}`); (d) copy `data/raw/*.jsonl.gz` → `data-branch/raw/`; (e) append each new filename to `data-branch/manifest.json`; (f) commit and push the data branch with pull-rebase retry ×3; (g) run the arb scanner + signal engine so signals/arb_events stay current, and invoke alerts if T12 is installed.
+3. `poll.yml` — exact flow (do not improvise): cron 16:00–04:00 UTC hourly + `workflow_dispatch`. Steps: (a) `actions/checkout` main into the default workspace; (b) install deps, run poller with the API key secret — writes `data/raw/*.jsonl.gz` in the main workspace per T2 /produces; (c) `actions/checkout` the `data` branch into subdirectory `data-branch/` (`with: {ref: data, path: data-branch}`); (d) copy `data/raw/*.jsonl.gz` → `data-branch/raw/`; (e) append each new filename to `data-branch/manifest.json`; (f) commit and push the data branch with pull-rebase retry ×3; (g) run the arb scanner + signal engine so signals/arb_events stay current, and invoke alerts if T12 is installed; **(h) run `python -m src.results` (settle completed games) then `python -m src.learn` (update Brier scores → persist `book_sharpness`) — this closes the learning loop per T15. Nothing about results or weights is ever entered by hand.**
 4. `heartbeat.yml`: daily 12:00 UTC; counts yesterday's rows from the data branch; POSTs to Discord (webhook secret) if zero or <25% of the 7-day average; includes the latest credit-remaining figure.
 5. Push, trigger manually once, confirm green; then wait for one scheduled run.
 6. `scripts/verify_t5.py`: asserts a data-branch commit within the last 2 hours during game windows; `manifest.json` lists every raw file actually present (no orphans either direction); no .sqlite/.env blob tracked anywhere.
@@ -486,6 +472,19 @@ Each ticket is a self-contained agent role. `/goal` = the verifiable end state (
 /forbidden: more than one account at any single vendor; scraping any sportsbook; touching model/backtest code; letting mapping failures insert unmatched events silently.
 /loop: "Read plan §7 T13 and execute its /steps in order. Do not deviate from /steps or violate /forbidden. Finish by running scripts/verify_t13.py; fix until exit 0. Append the canonical mapping decisions to DECISIONS.md."
 
+**T15 — Live learning loop (settle → score → persist → consume)** *(after T6; the live counterpart of T11)*
+/goal: `src/learn.py` runs unattended after each poll: for every newly-settled game it computes each book's devigged CLOSING probability, Brier-scores it against the result, EWMA-updates (λ=0.98) and shrinks (n0=30) per (book, sport), and persists to `book_sharpness`; `_consensus_signals` reads those persisted weights once a (book, sport) has n_games ≥ `min_games_for_learned_weights` (default 30) and otherwise uses the inverse-overround prior; `--dry-run` prints the weight table without writing. **No result or weight is ever entered by hand — this ticket is what makes the model self-improving.**
+/steps:
+1. Read DECISIONS.md, plan §4.5, §9 P1, and `src/sharpness.py` — the pure functions (`brier`, `ewma_update`, `shrink`, `weights`) already exist; REUSE them, never reimplement.
+2. `src/learn.py`: select settled events in `game_results` not yet scored (add a `sharpness_scored` table or a `scored_at` column); for each, derive the closing group per book (last complete pre-commence batch), devig it, `brier()` against the winner, `ewma_update`, then `shrink` toward the cross-book mean; upsert `book_sharpness` (book, sport, shrunk_brier, n_games, updated_at).
+3. Idempotency is mandatory: re-running must never double-score a game. Verify by running twice and asserting `book_sharpness` is byte-identical.
+4. `signal_engine._consensus_signals`: replace the hardcoded `wts[book] = 1/max(ovr, 0.02)` with a weight resolver — learned inverse-shrunk-Brier when `n_games >= min_games_for_learned_weights`, else the overround prior. Log which source was used per scan so the transition from prior to learned is observable.
+5. Config: add `min_games_for_learned_weights: 30`.
+6. Wire into `poll.yml` step (h) per T5 so it runs unattended after every poll.
+7. `scripts/verify_t15.py`: synthetic settled games produce hand-checkable Brier values; the job is idempotent across two runs; a book below the game threshold still receives the prior weight; a book above it receives the learned weight.
+/forbidden: scoring a game before its commence_time (walk-forward violation); hand-entering results or weights anywhere; scoring from non-closing snapshots; letting a quote that failed price_sanity/overround enter the Brier scoring (garbage in the weights is exactly the failure this project already hit once live).
+/loop: "Read plan §7 T15 and execute its /steps in order. Do not deviate from /steps or violate /forbidden. Finish by running scripts/verify_t15.py; fix until exit 0. Append decisions to DECISIONS.md."
+
 ---
 
 ## 8. Risk & Reality Notes (read before betting real money)
@@ -520,3 +519,30 @@ Each ticket is a self-contained agent role. `/goal` = the verifiable end state (
 
 **P9 — Credit exhaustion.** The API returns remaining-quota headers on every response. Log them; alert below 100 credits; degrade gracefully (drop intraday polls before dropping closing-line coverage — closing lines are the one non-negotiable dataset).
 
+
+---
+
+## 10. Current Build State (live — update as work lands)
+
+**Working and deployed:**
+- Full scaffold + core math modules; 33 tests passing, ruff clean.
+- Two live providers behind the adapter interface: **The Odds API** (us+eu) and **SportsGameOdds** (MLB). Each reads its own key from `.env`; contributors stack their own free tiers.
+- `src/mapping.py` canonical book/team resolution; T13 verified (4 books cross-quoted across providers).
+- `provider_usage` table (our own quota tracking — SGO publishes no quota headers) and `book_deeplinks` table (SGO deep links stored per book/outcome).
+- **GitHub Actions cron live**, 3×/day (16:00/20:00/00:00 UTC): poll → scan → results → data-branch commit. Data branch + manifest.json working.
+- **Consensus fair-line mode active** (`fair_line_mode: consensus`). Reason: Pinnacle was found NOT to quote WNBA at pull time, and on MLB its prices were systematically 10%+ off the market with fresh timestamps (stale-but-timestamped). The market consensus is currently the more reliable fair line than the assumed sharp anchor — an empirical finding that overturned the plan's original Pinnacle-anchor assumption.
+- **Median-outlier guard** in both `_consensus_signals` and `scan_arbs`: any book >5% from the median implied prob is excluded, killing phantom arbs/edges manufactured by one stale book.
+- **Discord alerts live** (T12): go/no-go cards with emoji headline (bet type · team · book · price), edge, fair prob, ¼-Kelly human-rounded stake, math floor, slippage tolerance, hard expiry. Arb alerts fire only for positive-margin arbs whose books are ALL in `my_books`. Alerts gated to `my_books` and the live edge window; 30-min duplicate suppression.
+- **Three-tier deep links** in alert cards: Tier 1 precise betslip (SGO, only if fresh within staleness window) → Tier 2 configured sport-page URL (`book_deeplinks_fallback`) → Tier 3 search fallback (needs team names threaded through; not yet active). Freshness is never sacrificed for a link.
+- `scripts/peek.py`: self-labeling diagnostic — active signals, filter-reason breakdown, arb margins, per-event diagnostic.
+
+**Known real-world facts discovered during build (do not re-litigate):**
+- **Betfair Exchange is geo-blocked in the US** — removed from `my_books`; kept as a price source for the consensus only, never an alert target.
+- **The Odds API does not provide deep links** (they don't capture book internal selection IDs). Deep links only ever come from providers that include them (SGO). This is a fixed property of each vendor, checked at selection time — not something buildable on top of a vendor that lacks it.
+- SGO free tier = 2,500 objects/month, 1 object = 1 event (not per-market). ~10 events/page, paginate via `nextCursor`. Covers FanDuel, DraftKings, BetMGM, Caesars, ESPN Bet, William Hill, Bovada, Unibet, PointsBet — NOT WNBA, NOT Betfair.
+- `my_books` currently: `[hardrockbet, fanatics, bovada]`. Fallback URLs verified for hardrockbet, bovada, fanatics (betfanatics.com/mlb).
+
+**Deferred until ~1 week of data accumulates:**
+- **T15 (learning loop):** `src/learn.py` — for each resolved game, devig closing prices per book, Brier-score vs winner, EWMA+shrinkage into `book_sharpness`; consensus reads learned weights once a (book, sport) has ≥30 resolved games, else the inverse-overround prior. Wired into poll workflow step (h). No manual result/weight entry ever. THIS is what will empirically resolve which books to trust and automate away the Pinnacle-outlier problem.
+- **T8 (real backtest):** runs once ~100 resolved games exist.
+- **T14 (Phase 6 execution engine):** exchange-API only, deterministic (no AI in order path), hard-gated on positive lag-table + 150 forward paper signals + 1 month profitable manual exchange execution.
