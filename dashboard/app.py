@@ -7,11 +7,17 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 import yaml
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
 from data_loader import load_db
 
 st.set_page_config(page_title="Fair-Line Engine", layout="wide")
 CFG = yaml.safe_load(open(Path(__file__).parent.parent / "config.yaml"))
-conn = load_db()
+import os
+_is_cloud = os.environ.get("HOSTNAME", "").startswith("streamlit") or not (
+    Path(__file__).parent.parent / "data/odds.sqlite").exists()
+conn = load_db(force_remote=_is_cloud)
 page = st.sidebar.radio("Page", ["1 Live Board", "2 History", "3 Backtest",
                                  "4 Model Health", "5 Live/Paper Tracker"])
 
