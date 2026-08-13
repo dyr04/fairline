@@ -1,0 +1,72 @@
+{
+  "model_A": {
+    "lag_0m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    },
+    "lag_1m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    },
+    "lag_3m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    },
+    "lag_5m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    },
+    "lag_10m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    }
+  },
+  "model_B": {
+    "lag_0m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    },
+    "lag_1m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    },
+    "lag_3m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    },
+    "lag_5m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    },
+    "lag_10m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    }
+  },
+  "model_H": {
+    "lag_0m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    },
+    "lag_1m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    },
+    "lag_3m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    },
+    "lag_5m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    },
+    "lag_10m": {
+      "n_bets": 0,
+      "staleness_excluded_frac": 0.0
+    }
+  },
+  "ev_buckets_cap_disabled": {
+    "calibration": {},
+    "validation": {}
+  }
+}
