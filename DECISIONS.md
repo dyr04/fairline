@@ -21,6 +21,17 @@ decision after. Plan reference: devig-arb-project-plan.md.
 - Repo must be PUBLIC (Streamlit Cloud reads data-branch raw URLs).
 - Model routing per plan §7: Haiku(T1,T6,T10,verify boilerplate),
   Sonnet(T2-T5,T7,T12,T13), Frontier(T8,T11,reviews,T14).
+- T15 wiring introduced an indentation bug in _consensus_signals that dropped
+  probs[book]/wts[book] assignments, silently zeroing all live consensus signals
+  while tests stayed green (synthetic fixtures didn't exercise the path). Fixed.
+  Lesson: bias-critical diffs need a review pass (plan §7 model-routing rule).
+- Backtest CLV is unmeasurable on pre-2026-08-13 data: 3x/day polling never
+  captured pre-tipoff closing lines, so all closes tier as 'stale' and
+  headline_clv is null. Dynamic pre-game polling (schedule_poll) fixes this
+  going forward; re-run backtest after ~2-3 weeks of dense pre-tipoff capture.
+- Early backtest ROI (flat 28-49%, quarter-Kelly up to 111%) is variance on
+  11-14 bets with NEGATIVE CLV — explicitly NOT evidence of edge. Do not report.
+  
 
 ## HANDOFF NOTES
 - dashboard/data_loader.py: set REPO_RAW after the repo exists (T5/T7).
