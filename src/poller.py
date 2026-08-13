@@ -202,9 +202,13 @@ def main() -> None:
     if os.environ.get("ODDS_API_KEY"):
         providers.append(TheOddsApiProvider(os.environ["ODDS_API_KEY"], cfg["regions"]))
     sgo_leagues = cfg.get("sportsgameodds_leagues", [])
-    if os.environ.get("SPORTSGAMEODDS_API_KEY") and sgo_leagues:
-        providers.append(SportsGameOddsProvider(
-            os.environ["SPORTSGAMEODDS_API_KEY"], sgo_leagues))
+    _sgo_key = os.environ.get("SPORTSGAMEODDS_API_KEY", "")
+    print(f"SGO gate: key_present={bool(_sgo_key)} key_len={len(_sgo_key)} leagues={sgo_leagues}")
+    if _sgo_key and sgo_leagues:
+        providers.append(SportsGameOddsProvider(_sgo_key, sgo_leagues))
+        print("SGO provider LOADED")
+    else:
+        print("SGO provider SKIPPED")
     if not providers:
         raise SystemExit("no provider keys configured")
 
