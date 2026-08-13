@@ -190,7 +190,10 @@ def _consensus_signals(latest, event_id, sport, config, out):
                 continue
             dv = devig_multiplicative(odds)
             p = {r["outcome"]: q for r, q in zip(rows, dv)}
-        # T15: prefer learned Brier weights once books have enough resolved games.
+        probs[book] = p
+        wts[book] = 1.0 / max(ovr, 0.02)
+
+    # T15: prefer learned Brier weights once books have enough resolved games.
     try:
         import sqlite3
         from src.learn import learned_weights

@@ -158,7 +158,13 @@ def _fair_for_model(sig, cum_rows, state: SharpnessState, model: str, config) ->
             latest[book] = rows
     probs = {}
     for book, rows in latest.items():
-        dv = devig_multiplicative([r["price_decimal"] for r in rows])
+        odds = [r["price_decimal"] for r in rows]
+        if any(o < 1.05 or o > 30.0 for o in odds):
+            continue  # price-sanity guard (mirror _consensus_signals)
+        try:
+            dv = devig_multiplicative(odds)
+        except ValueError:
+            continue
         for r, p in zip(rows, dv):
             if r["outcome"] == sig.outcome:
                 probs[book] = p
