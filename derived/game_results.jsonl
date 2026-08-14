@@ -44,3 +44,5 @@
 {"event_id": "adc6dd060846838773f87fb71bbbad5d", "sport": "basketball_wnba", "winner": "New York Liberty", "home_score": 85, "away_score": 81, "ingested_at": "2026-08-14T04:16:22Z"}
 {"event_id": "b7f37fe3659219219e03ac3a2ceaea8d", "sport": "basketball_wnba", "winner": "Las Vegas Aces", "home_score": 83, "away_score": 76, "ingested_at": "2026-08-14T04:16:22Z"}
 {"event_id": "9fa039b0c801332ed857fb145a2926b9", "sport": "baseball_mlb", "winner": "Philadelphia Phillies", "home_score": 1, "away_score": 7, "ingested_at": "2026-08-14T04:16:23Z"}
+{"event_id": "f9b96108d4bae8b60bcda1e87549bedc", "sport": "baseball_mlb", "winner": "Los Angeles Angels", "home_score": 7, "away_score": 0, "ingested_at": "2026-08-14T07:25:59Z"}
+{"event_id": "4071566704903e79a0090ba8e886f060", "sport": "baseball_mlb", "winner": "Milwaukee Brewers", "home_score": 4, "away_score": 5, "ingested_at": "2026-08-14T07:25:59Z"}
