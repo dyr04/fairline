@@ -47,3 +47,4 @@
 {"event_id": "f9b96108d4bae8b60bcda1e87549bedc", "sport": "baseball_mlb", "winner": "Los Angeles Angels", "home_score": 7, "away_score": 0, "ingested_at": "2026-08-14T07:25:59Z"}
 {"event_id": "4071566704903e79a0090ba8e886f060", "sport": "baseball_mlb", "winner": "Milwaukee Brewers", "home_score": 4, "away_score": 5, "ingested_at": "2026-08-14T07:25:59Z"}
 {"event_id": "f3659cdd72f761a2763f92483ca59b6e", "sport": "baseball_mlb", "winner": "Chicago Cubs", "home_score": 3, "away_score": 0, "ingested_at": "2026-08-14T22:23:23Z"}
+{"event_id": "2124d4bb5569819a30020e5b907ca202", "sport": "baseball_mlb", "winner": "Cincinnati Reds", "home_score": 1, "away_score": 0, "ingested_at": "2026-08-15T01:15:25Z"}
